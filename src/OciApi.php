@@ -96,6 +96,8 @@ class OciApi
 EOD;
 
         $baseUrl = "{$this->getBaseApiUrl($config)}/instances/";
+        echo "DEBUG URL: $baseUrl\n";
+        echo "DEBUG BODY: $body\n";
 
         try {
             return $this->call($config, $baseUrl, 'POST', $body);
