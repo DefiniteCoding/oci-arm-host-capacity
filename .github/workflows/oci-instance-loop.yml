@@ -58,11 +58,11 @@ jobs:
           TOO_MANY_REQUESTS_TIME_WAIT: 600
 
       # Sends a Telegram "still alive" ping every 12th run (~1 hour).
-      # RUN_NUMBER is always a sequential integer so modulo is stable.
       - name: Heartbeat ping (every ~1 hour)
-        if: ${{ github.run_number % 12 == 0 }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_API_KEY }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
-            -d text="⏳ OCI loop still running — no instance yet. Run #${{ github.run_number }}" \
-            > /dev/null
+          if [ $(( ${{ github.run_number }} % 12 )) -eq 0 ]; then
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_API_KEY }}/sendMessage" \
+              -d chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
+              -d text="⏳ OCI loop still running — no instance yet. Run #${{ github.run_number }}" \
+              > /dev/null
+          fi
