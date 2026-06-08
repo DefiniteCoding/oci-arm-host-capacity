@@ -66,7 +66,7 @@ class OciApi
     "availabilityDomain": "$availabilityDomain",
     "sourceDetails": {$config->getSourceDetails()},
     "createVnicDetails": {
-        "assignPublicIp": false,
+        "assignPublicIp": true,
         "subnetId": "{$config->subnetId}",
         "assignPrivateDnsRecord": true
     },
@@ -96,8 +96,6 @@ class OciApi
 EOD;
 
         $baseUrl = "{$this->getBaseApiUrl($config)}/instances/";
-        echo "DEBUG URL: $baseUrl\n";
-        echo "DEBUG BODY: $body\n";
 
         try {
             return $this->call($config, $baseUrl, 'POST', $body);
