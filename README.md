@@ -4,6 +4,13 @@
   <a href="https://github.com/hitrov/oci-arm-host-capacity/actions"><img src="https://github.com/hitrov/oci-arm-host-capacity/workflows/Tests/badge.svg" alt="Test"></a>
 </p>
 
+> [!WARNING]
+> **Forked repositories cannot run scheduled (cron) GitHub Actions workflows.**
+>
+> GitHub silently suppresses the `schedule` trigger on forks. If you fork this repo, the workflow will appear active but will **never fire automatically** — you will only be able to run it manually via `workflow_dispatch`.
+>
+> **You must create a new standalone (non-fork) repository** — either private or public — and push the code there. See [GitHub Actions Setup](#github-actions-workflows) below for full instructions.
+
 **Update 2024:** The script is still functional, but many Reddit users now recommend upgrading to Pay As You Go (PAYG) for the best experience. With PAYG, you'll continue to enjoy all the free benefits without any additional cost, but you'll also receive priority for launching instances and are less likely to face "Out of host capacity" errors. Additionally, PAYG unlocks more types of OCI resources, including free Kubernetes-related infrastructure if that's something you're interested in. It's important to set up budget alerts as a safety net and be mindful of the resources you deploy and their associated costs. This way, you can take full advantage of PAYG while keeping your spending in check.
 
 Very neat and useful configuration was recently [announced](https://blogs.oracle.com/cloud-infrastructure/post/moving-to-ampere-a1-compute-instances-on-oracle-cloud-infrastructure-oci) at Oracle Cloud Infrastructure (OCI) blog as a part of Always Free tier. Sometimes it's complicated to launch an instance due to the "Out of Capacity" error. Here we're solving that issue as Oracle constantly adds capacity from time to time.
@@ -33,12 +40,15 @@ is a bit outdated regarding [Configuration](#configuration) but still can be use
   - [Linux / WSL](#linux--wsl)
   - [GitHub actions (workflows)](#github-actions-workflows)
     - [Setup](#setup)
+    - [Required secrets](#required-secrets)
+    - [Heartbeat notifications](#heartbeat-notifications)
     - [Read This Carefully](#read-this-carefully)
 - [How it works](#how-it-works)
 - [Assigning public IP address](#assigning-public-ip-address)
 - [Troubleshooting](#troubleshooting)
   - [Private key issues](#private-key-issues)
   - [SSH key issues](#ssh-key-issues)
+  - [Fingerprint issues](#fingerprint-issues)
 - [Multiple configuration support](#multiple-configuration-support)
 - [Conclusion](#conclusion)
 
@@ -232,57 +242,71 @@ You can also visit the URL above and see the same command output as by running f
 
 ### GitHub actions (workflows)
 
-In order to test the script using GitHub runners (their virtual machines) please complete [Setup](#setup). 
+> [!WARNING]
+> **Forked repos will NOT run scheduled workflows.** GitHub silently disables the `schedule` trigger on all forks — the workflow appears enabled but never fires. You must use a standalone (non-fork) repository. See [Setup](#setup) below.
+
+In order to run the script using GitHub Actions please complete [Setup](#setup).  
 **NB!** To avoid the ban of your Github account [Read This Carefully](#read-this-carefully) **!!!**
 
 #### Setup
 
-1. Fork this repository
-2. Never push `.env` file, it's in `.gitignore` for a reason
-3. Instead of copying/modifying `.env` file, use `Secrets` in your own repository `Settings`:
+1. **Do not fork this repository.** Instead, create a new repository on GitHub (private is fine) and push this code there:
+   ```bash
+   git clone https://github.com/hitrov/oci-arm-host-capacity.git
+   cd oci-arm-host-capacity
+   git remote set-url origin https://github.com/{your-username}/{your-new-repo}.git
+   git push -u origin main
+   ```
+2. Never push `.env` file — it's in `.gitignore` for a reason.
+3. Store your OCI credentials as GitHub Actions secrets in your repository settings:
 
-`https://github.com/{your-username}/oci-arm-host-capacity/settings/secrets/actions`
+   `https://github.com/{your-username}/{your-repo}/settings/secrets/actions`
 
-4. Click `New repository secret` and set all the values (**one by one**) that you'd set in `.env` file e.g.
+4. Click `New repository secret` and add each secret listed in [Required secrets](#required-secrets).
 
-![New Repository Secret](images/new-repository-secret.png)
+   *NB!* No need to double-quote any value here.
 
-*NB!* No need to double quote any value here!
+5. The workflow file `.github/workflows/oci-instance-loop.yml` is already included in the repo. It runs every 5 minutes automatically until the instance creation succeeds.
 
-5. As for the private key, you have 2 options. Either:
-- upload to any web server accessible from the Internet by using just URL or...
-- upload in the [bucket](https://cloud.oracle.com/object-storage/buckets) and `Create Pre-Authenticated Request`. 
+6. Disable the workflow once your instance is created to stop consuming GitHub Actions minutes:
+   ```bash
+   gh workflow disable oci-instance-loop.yml --repo {your-username}/{your-repo}
+   ```
 
-![Create Pre-Authenticated Request](images/create-par.png)
+#### Required secrets
 
-6. Copy and save the URL from (5) as `OCI_PRIVATE_KEY_FILENAME` GitHub secret.
-7. Go to any other directory e.g. `cd /Users/hitrov`
-8. `git clone https://github.com/{your-username}/oci-arm-host-capacity`
-9. Adjust the file `.github/workflows/tests.yml` according to [this commit](https://github.com/hitrov/oci-arm-host-capacity/commit/67fe41ebfb9f385ae1614c97b74195ea318c8db7), just execute:
-```bash
-git checkout 67fe41ebfb9f385ae1614c97b74195ea318c8db7 -- .github/workflows/tests.yml
-```
-10. Commit and push this file
-```bash
-git commit -m "Modify workflow to test out periodic job" .github/workflows/tests.yml
-git push origin main
-```
-11. Go to `https://github.com/{your-username}/oci-arm-host-capacity/actions` and check how `Run script` job. 
+Set all of the following secrets in your repository. The private key is stored as secret contents (not a file path or URL) — the workflow writes it to a temp file at runtime.
 
-Here's the example https://github.com/hitrov/oci-arm-host-capacity/runs/4727904401?check_suite_focus=true
+| Secret | Description |
+|--------|-------------|
+| `OCI_PRIVATE_KEY_CONTENTS` | Full contents of your OCI API private key `.pem` file (PKCS#8 format, `-----BEGIN PRIVATE KEY-----`) |
+| `OCI_REGION` | Your OCI home region, e.g. `me-abudhabi-1` |
+| `OCI_USER_ID` | Your OCI user OCID (`ocid1.user.oc1..`) |
+| `OCI_TENANCY_ID` | Your tenancy OCID (`ocid1.tenancy.oc1..`) |
+| `OCI_KEY_FINGERPRINT` | API key fingerprint shown in OCI Console (e.g. `ab:7d:97:b0:96:3b:40:e3:b1:5f:e4:a1:84:79:02:94`) — **always use the value shown in OCI Console, not one computed locally** |
+| `OCI_SUBNET_ID` | Subnet OCID from your VCN |
+| `OCI_IMAGE_ID` | Platform image OCID for your region |
+| `OCI_SSH_PUBLIC_KEY` | Your SSH public key string (single line, no newlines) |
+| `OCI_OCPUS` | Number of OCPUs (e.g. `4` for max free tier) |
+| `OCI_MEMORY_IN_GBS` | RAM in GB (e.g. `24` for max free tier) |
+| `OCI_SHAPE` | Instance shape (e.g. `VM.Standard.A1.Flex`) |
+| `OCI_MAX_INSTANCES` | Max instances to create (e.g. `1`) |
+| `OCI_BOOT_VOLUME_SIZE_IN_GBS` | Boot volume size in GB (e.g. `50`; minimum 50 for ARM) |
+| `OCI_AVAILABILITY_DOMAIN` | Leave empty for ARM (script auto-discovers); required for AMD x64 |
+| `TELEGRAM_BOT_API_KEY` | Optional — Telegram bot token for notifications |
+| `TELEGRAM_USER_ID` | Optional — Your Telegram chat ID for notifications |
 
-![GitHub Worflow cron](images/github-workflow-cron.png)
+#### Heartbeat notifications
 
-![Test Periodic Job (cron)](images/test-periodic-job-cron.png)
+The workflow includes an optional Telegram heartbeat: every 12th run (~1 hour) it sends a "still running" ping so you know the loop is alive. This requires `TELEGRAM_BOT_API_KEY` and `TELEGRAM_USER_ID` to be set. You will also receive a notification when the instance is successfully created.
+
+If you don't want Telegram notifications, leave those two secrets unset — the heartbeat step will silently fail without breaking the main loop.
 
 #### Read This Carefully
 
-Specific GitHub Workflows [commit](https://github.com/hitrov/oci-arm-host-capacity/commit/67fe41ebfb9f385ae1614c97b74195ea318c8db7) 
-used in the [Setup](#setup) take an advantage of [Scheduled events](https://docs.github.com/en/actions/learn-github-actions/events-that-trigger-workflows#scheduled-events)  
-and **will endlessly run the script every 5-20 minutes** (how exactly often - depends on runners' availability). 
+The workflow `.github/workflows/oci-instance-loop.yml` uses [Scheduled events](https://docs.github.com/en/actions/learn-github-actions/events-that-trigger-workflows#scheduled-events) and **will endlessly run the script every 5 minutes** until an instance is created.
 
-**NB!** After you're done with testing, **immediately delete .github/workflows/tests.yml** (because you don't need integration tests - they're written taking into account instances that I have) and push to the `main` branch 
-because infinite run actually violates the [Terms of Use](https://docs.github.com/en/github/site-policy/github-terms-for-additional-products-and-features#actions):
+**NB!** After your instance is created, **immediately disable or delete the workflow** because infinite runs violate the [Terms of Use](https://docs.github.com/en/github/site-policy/github-terms-for-additional-products-and-features#actions):
 ```
 Actions should not be used for:
 ...
@@ -294,10 +318,15 @@ Misuse of GitHub Actions may result in termination of jobs, restrictions in your
 or the disabling of repositories created to run Actions in a way that violates these Terms.
 ```
 
-This is how you do:
+Disable the workflow via CLI:
 ```bash
-git rm .github/workflows/tests.yml
-git commit -m "Delete workflow file" .github/workflows/tests.yml
+gh workflow disable oci-instance-loop.yml --repo {your-username}/{your-repo}
+```
+
+Or delete the file and push:
+```bash
+git rm .github/workflows/oci-instance-loop.yml
+git commit -m "Disable instance creation loop"
 git push origin main
 ```
 
@@ -319,17 +348,9 @@ In case of success the JSON output will be similar to
 
 ## Assigning public IP address
 
-We are not doing this during the command run due to the default limitation (2 ephemeral addresses per compartment). That's how you can achieve this. When you'll succeed with creating an instance, open OCI Console, go to Instance Details -> Resources -> Attached VNICs by selecting it's name
+The workflow is configured with `"assignPublicIp": true` so the instance will automatically receive a public IP on creation — no manual steps needed.
 
-![Attached VNICs](images/attached-vnics.png)
-
-Then Resources -> IPv4 Addresses -> Edit
-
-![IPv4 Addresses](images/ipv4-addresses.png)
-
-Choose ephemeral and click "Update"
-
-![Edit IP Address](images/edit-ip-address.png)
+If you used the original script without this change and your instance has no public IP, you can assign one via the OCI Console: Instance Details -> Resources -> Attached VNICs -> select the VNIC name -> Resources -> IPv4 Addresses -> Edit -> choose Ephemeral -> Update.
 
 ## Troubleshooting
 
@@ -373,6 +394,21 @@ chmod 777 /path/to/oracleidentitycloudservice_***-07-14-10-35.pem
 ```
 Copy the proper contents of `~/.ssh/id_rsa.pub` again and make sure it's inside double quotes. 
 Or re-generate pair of keys. Make sure you won't unintentionally overwrite your existing ones. 
+
+### Fingerprint issues
+
+OCI computes the API key fingerprint differently than local `openssl` commands. Do **not** compute the fingerprint yourself — always use the value shown in the OCI Console after uploading your public key.
+
+The fingerprint is displayed in the "Configuration file preview" modal when you add an API key:
+
+```
+[DEFAULT]
+user=ocid1.user.oc1..xxx
+fingerprint=ab:7d:97:b0:96:3b:40:e3:b1:5f:e4:a1:84:79:02:94
+...
+```
+
+Copy that value exactly into `OCI_KEY_FINGERPRINT`. Using a locally-computed fingerprint will result in `NotAuthorizedOrNotFound` (HTTP 404) errors.
 
 ## Multiple configuration support
 
